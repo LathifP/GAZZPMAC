@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="id" class="dark h-full antialiased">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PMAC Monitoring Dashboard</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com/3.4.17" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+    <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+    <script src="/_sdk/element_sdk.js" type="text/javascript"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    },
+                    colors: {
+                        bg: '#050510',
+                        panel: '#10101C',
+                        panelHover: '#17172B',
+                        primary: '#6366f1',
+                        accent: '#a855f7',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#3b82f6',
+                        c_o2: '#34d399', // emerald-400
+                        c_co2: '#60a5fa', // blue-400
+                        c_rq: '#c084fc', // purple-400
+                        c_eth: '#fbbf24', // amber-400
+                        c_temp: '#f43f5e', // rose-500
+                        c_rh: '#818cf8', // indigo-400
+                        c_mist: '#2dd4bf', // teal-400
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'gradient-x': 'gradient-x 15s ease infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        'gradient-x': {
+                            '0%, 100%': {
+                                'background-size': '200% 200%',
+                                'background-position': 'left center'
+                            },
+                            '50%': {
+                                'background-size': '200% 200%',
+                                'background-position': 'right center'
+                            },
+                        },
+                        'float': {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #050510;
+            background-image:
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.12) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: #f8fafc;
+        }
+
+        .glass-panel {
+            background: rgba(16, 16, 28, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-panel:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            background: rgba(25, 25, 45, 0.6);
+        }
+
+        .text-gradient {
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .value-flash {
+            animation: flashHighlight 0.5s ease-out;
+        }
+
+        @keyframes flashHighlight {
+            0% {
+                text-shadow: 0 0 20px currentColor;
+                transform: scale(1.05);
+            }
+
+            100% {
+                text-shadow: none;
+                transform: scale(1);
+            }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(16, 16, 28, 0.5);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.5);
+        }
+
+        /* Chart Canvas Optimization */
+        canvas {
+            max-width: 100%;
+            touch-action: pan-y;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+    </style>
+</head>
+
+<body
+    class="min-h-screen relative text-slate-200 p-4 md:p-8 xl:p-12 overflow-x-hidden selection:bg-primary selection:text-white">
+
+    <!-- Header Section -->
+    <header class="mb-10 text-center animate-fade-in-down"
+        style="animation: slideDown 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;">
+        <div
+            class="inline-block mb-3 px-4 py-1.5 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs font-bold tracking-widest uppercase shadow-[0_0_15px_rgba(99,102,241,0.2)] backdrop-blur-md">
+            Live Monitoring System
+        </div>
+        <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 drop-shadow-lg">
+            <span class="bg-gradient-to-r from-c_o2 via-c_co2 to-c_rq text-gradient animate-gradient-x">PMAC
+                Dashboard</span>
+        </h1>
+        <p class="text-slate-400 max-w-2xl mx-auto font-light text-lg tracking-wide">Real-time Respiration & Gas Data
+            Analysis</p>
+
+        <div
+            class="flex flex-wrap items-center justify-center gap-4 mt-8 text-sm font-mono text-slate-400 bg-slate-900/50 inline-flex mx-auto px-6 py-2 rounded-xl border border-slate-800 shadow-inner">
+            <div class="flex items-center gap-2">
+                <div id="statusDot"
+                    class="w-2.5 h-2.5 rounded-full bg-warning animate-pulse-slow shadow-[0_0_10px_rgba(245,158,11,0.5)]">
+                </div>
+                <span id="statusText" class="font-medium text-slate-300">Connecting to Server...</span>
+            </div>
+            <div class="hidden sm:block w-px h-4 bg-slate-700"></div>
+            <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span id="lastUpdateTime" class="tracking-wider text-slate-300">--:--:--</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto space-y-8 pb-10">
+        <!-- Main Stats Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4 md:gap-6">
+
+            <!-- O2 Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">O₂</h3>
+                    <div class="p-2 rounded-xl bg-c_o2/10 text-c_o2 group-hover:bg-c_o2/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="o2Val"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_o2 tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                    <span class="text-slate-500 font-medium text-sm lg:text-base">%</span>
+                </div>
+            </div>
+
+            <!-- CO2 Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">CO₂</h3>
+                    <div class="p-2 rounded-xl bg-c_co2/10 text-c_co2 group-hover:bg-c_co2/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="co2Val"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_co2 tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                    <span class="text-slate-500 font-medium text-sm lg:text-base">%</span>
+                </div>
+            </div>
+
+            <!-- RQ Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">RQ</h3>
+                    <div class="p-2 rounded-xl bg-c_rq/10 text-c_rq group-hover:bg-c_rq/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="rqVal"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_rq tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                </div>
+            </div>
+
+            <!-- Ethanol Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">Ethanol</h3>
+                    <div class="p-2 rounded-xl bg-c_eth/10 text-c_eth group-hover:bg-c_eth/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="ethVal"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_eth tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                    <span class="text-slate-500 font-medium text-xs lg:text-sm">ppm</span>
+                </div>
+            </div>
+
+            <!-- Temperature Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">Suhu</h3>
+                    <div class="p-2 rounded-xl bg-c_temp/10 text-c_temp group-hover:bg-c_temp/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="tempVal"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_temp tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                    <span class="text-slate-500 font-medium text-sm lg:text-base">°C</span>
+                </div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">RH</h3>
+                    <div class="p-2 rounded-xl bg-c_rh/10 text-c_rh group-hover:bg-c_rh/20 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <p id="rhVal"
+                        class="text-3xl md:text-3xl lg:text-4xl font-mono font-bold text-c_rh tabular-nums tracking-tight drop-shadow-md">
+                        -</p>
+                    <span class="text-slate-500 font-medium text-sm lg:text-base">%</span>
+                </div>
+            </div>
+
+            <!-- Mist Status Card -->
+            <div
+                class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-primary/20 bg-gradient-to-br from-panel/40 to-panel/80">
+                <div class="flex xl:flex-col justify-between xl:items-start items-center mb-0 xl:mb-4 w-full">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">Mist</h3>
+                    <div
+                        class="p-2 rounded-xl bg-c_mist/5 text-c_mist group-hover:bg-c_mist/20 transition-colors hidden xl:block">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center xl:items-baseline gap-2">
+                    <p id="mistVal"
+                        class="text-2xl md:text-3xl lg:text-4xl font-sans font-bold text-slate-500 tracking-tight transition-all duration-300">
+                        -</p>
+                </div>
+            </div>
+
+            <!-- Alert Status Card -->
+            <div id="alertCard"
+                class="glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-primary/20 bg-gradient-to-br from-panel/40 to-panel/80">
+                <div class="flex xl:flex-col justify-between xl:items-start items-center mb-0 xl:mb-4 w-full">
+                    <h3 class="text-slate-400 text-xs font-bold tracking-[0.2em] uppercase">Status</h3>
+                    <div id="alertIconBox"
+                        class="p-2 rounded-xl bg-slate-500/10 text-slate-400 group-hover:bg-slate-500/20 transition-colors hidden xl:block">
+                        <svg class="w-4 h-4 text-currentColor" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center xl:items-baseline gap-2">
+                    <p id="alertVal"
+                        class="text-xl md:text-2xl lg:text-2xl font-sans font-bold tracking-widest transition-all duration-300">
+                        -
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="glass-panel p-4 md:p-6 rounded-2xl flex flex-col h-[350px] md:h-[400px]">
+                <div class="flex items-center justify-between mb-4">
+                    <h2
+                        class="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span
+                            class="w-2.5 h-2.5 shadow-[0_0_10px_rgba(96,165,250,0.6)] rounded-full bg-blue-400"></span>
+                        O₂ & CO₂ Over Time
+                    </h2>
+                </div>
+                <div class="relative flex-1 w-full h-full min-h-0">
+                    <canvas id="chartO2CO2"></canvas>
+                </div>
+            </div>
+
+            <div class="glass-panel p-4 md:p-6 rounded-2xl flex flex-col h-[350px] md:h-[400px]">
+                <div class="flex items-center justify-between mb-4">
+                    <h2
+                        class="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span
+                            class="w-2.5 h-2.5 shadow-[0_0_10px_rgba(192,132,252,0.6)] rounded-full bg-purple-400"></span>
+                        RQ Analysis Ratio
+                    </h2>
+                </div>
+                <div class="relative flex-1 w-full h-full min-h-0">
+                    <canvas id="chartRQ"></canvas>
+                </div>
+            </div>
+
+            <div class="glass-panel p-4 md:p-6 rounded-2xl flex flex-col h-[350px] md:h-[400px]">
+                <div class="flex items-center justify-between mb-4">
+                    <h2
+                        class="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span
+                            class="w-2.5 h-2.5 shadow-[0_0_10px_rgba(251,191,36,0.6)] rounded-full bg-amber-400"></span>
+                        Ethanol Concentration
+                    </h2>
+                </div>
+                <div class="relative flex-1 w-full h-full min-h-0">
+                    <canvas id="chartEth"></canvas>
+                </div>
+            </div>
+
+            <div class="glass-panel p-4 md:p-6 rounded-2xl flex flex-col h-[350px] md:h-[400px]">
+                <div class="flex items-center justify-between mb-4">
+                    <h2
+                        class="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 shadow-[0_0_10px_rgba(244,63,94,0.6)] rounded-full bg-rose-400"></span>
+                        Temperature & RH Trend
+                    </h2>
+                </div>
+                <div class="relative flex-1 w-full h-full min-h-0">
+                    <canvas id="chartTempRH"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table Section -->
+        <div class="glass-panel p-6 md:p-8 rounded-2xl border-t border-t-white/10">
+            <div class="flex flex-col sm:flex-row items-baseline sm:items-center justify-between mb-6 gap-4">
+                <h2 class="text-sm font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center gap-3">
+                    <div class="p-1.5 rounded bg-slate-800 text-slate-400">
+                        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                        </svg>
+                    </div>
+                    Recent Data Logs
+                </h2>
+                <div
+                    class="text-xs font-mono text-slate-400 bg-slate-900/60 px-4 py-1.5 rounded-lg border border-slate-800 shadow-inner">
+                    Showing latest <span class="font-bold text-white">10</span> entries
+                </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-700/50 bg-slate-900/40 shadow-xl scroll-smooth">
+                <table class="w-full text-left font-mono whitespace-nowrap min-w-max">
+                    <thead class="text-xs text-slate-400 uppercase bg-slate-800/80 border-b border-slate-700">
+                        <tr>
+                            <th scope="col" class="px-6 py-4 font-semibold tracking-wider">Timestamp</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_co2 group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                CO₂ %</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_o2 group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                O₂ %</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_rq group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                RQ</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_eth group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                EtOH ppm</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_temp group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                Suhu °C</th>
+                            <th scope="col"
+                                class="px-6 py-4 font-semibold tracking-wider text-c_rh group cursor-pointer hover:bg-slate-700/30 transition-colors">
+                                RH %</th>
+                            <th scope="col" class="px-6 py-4 font-semibold tracking-wider text-c_mist">Mist</th>
+                            <th scope="col" class="px-6 py-4 font-semibold tracking-wider text-slate-300">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logBody" class="text-sm divide-y divide-slate-800/80 text-slate-300">
+                        <tr class="animate-pulse">
+                            <td colspan="9" class="px-6 py-12 text-center text-slate-500 font-sans tracking-wide">
+                                Loading real-time data from PMAC system...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Spreadsheet Link Button -->
+            <div class="mt-8 flex justify-center">
+                <a href="https://docs.google.com/spreadsheets/d/1OzU_zVCfutMjKHyC-np0YZ5xyeBuhILhpBCE7G7R-iU/edit?usp=sharing"
+                    target="_blank" rel="noopener noreferrer"
+                    class="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-success/10 hover:bg-success/20 border border-success/30 text-success text-sm font-semibold tracking-wide transition-all shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_20px_rgba(16,185,129,0.2)] hover:-translate-y-0.5 w-full sm:w-auto justify-center">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>
+                    Buka Full Log di Spreadsheet
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <style>
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+
+    <script>
+        // API Configuration
+        const API_URL = "https://script.google.com/macros/s/AKfycbx8Vs0O9Ln98WIJi035loRK4nEmQHNjq6jv8NXAdb1YF8gIwIZ9WqqK4RY4PBFCJEtB/exec?mode=json";
+        const MAX_POINTS = 50;
+
+        let chartO2CO2, chartRQ, chartEth, chartTempRH;
+        let isConnected = false;
+
+        // Custom chart.js defaults to match our premium aesthetic
+        Chart.defaults.color = '#64748b';
+        Chart.defaults.font.family = "'Fira Code', monospace";
+        Chart.defaults.font.size = 11;
+        Chart.defaults.scale.grid.color = 'rgba(51, 65, 85, 0.2)';
+
+        const commonChartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 500, easing: 'easeOutQuart' },
+            interaction: { mode: 'index', intersect: false },
+            layout: { padding: { top: 10, right: 10, bottom: 0, left: 0 } },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    align: 'end',
+                    labels: {
+                        boxWidth: 10,
+                        boxHeight: 10,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        color: '#cbd5e1',
+                        font: { family: "'Outfit', sans-serif", size: 12, weight: '500' },
+                        padding: 20
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#cbd5e1',
+                    borderColor: 'rgba(99, 102, 241, 0.3)',
+                    borderWidth: 1,
+                    padding: 14,
+                    cornerRadius: 12,
+                    displayColors: true,
+                    boxPadding: 6,
+                    usePointStyle: true,
+                    titleFont: { family: "'Outfit', sans-serif", size: 14, weight: '700' },
+                    bodyFont: { family: "'Fira Code', monospace", size: 13 }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' }, tooltipFormat: 'HH:mm:ss a' },
+                    grid: { drawBorder: false, color: 'rgba(51, 65, 85, 0.15)' },
+                    border: { display: false },
+                    ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }
+                },
+                y: {
+                    grid: { drawBorder: false, color: 'rgba(51, 65, 85, 0.15)' },
+                    border: { display: false },
+                    beginAtZero: false,
+                    ticks: { padding: 10 }
+                }
+            },
+            elements: {
+                line: { tension: 0.4, borderWidth: 3 },
+                point: { radius: 0, hitRadius: 15, hoverRadius: 5, hoverBorderWidth: 2, hoverBackgroundColor: '#fff' }
+            }
+        };
+
+        function num(v) {
+            return isNaN(parseFloat(v)) ? 0 : parseFloat(v);
+        }
+
+        function flashCard(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                el.classList.remove('value-flash');
+                void el.offsetWidth;
+                el.classList.add('value-flash');
+            }
+        }
+
+        function updateStatusBar(connected) {
+            isConnected = connected;
+            const statusText = document.getElementById('statusText');
+            const statusDot = document.getElementById('statusDot');
+
+            if (connected) {
+                statusText.textContent = 'Live Data Active';
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-success animate-pulse-slow shadow-[0_0_10px_rgba(16,185,129,0.7)]';
+            } else {
+                statusText.textContent = 'Connection Disconnected';
+                statusDot.className = 'w-2.5 h-2.5 rounded-full bg-danger shadow-[0_0_10px_rgba(239,68,68,0.7)]';
+            }
+            document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString('id-ID', { hour12: false });
+        }
+
+        // Beautiful Chart Gradients
+        function createGradient(ctx, colorStart, colorEnd) {
+            const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+            gradient.addColorStop(0, colorStart);
+            gradient.addColorStop(1, colorEnd);
+            return gradient;
+        }
+
+        function initCharts() {
+            const ctxO2CO2 = document.getElementById("chartO2CO2").getContext('2d');
+            chartO2CO2 = new Chart(ctxO2CO2, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: "O₂ (%)", data: [],
+                            borderColor: "#34d399",
+                            backgroundColor: createGradient(ctxO2CO2, 'rgba(52, 211, 153, 0.3)', 'rgba(52, 211, 153, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#34d399'
+                        },
+                        {
+                            label: "CO₂ (%)", data: [],
+                            borderColor: "#60a5fa",
+                            backgroundColor: createGradient(ctxO2CO2, 'rgba(96, 165, 250, 0.3)', 'rgba(96, 165, 250, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#60a5fa'
+                        }
+                    ]
+                },
+                options: commonChartOptions
+            });
+
+            const ctxRQ = document.getElementById("chartRQ").getContext('2d');
+            chartRQ = new Chart(ctxRQ, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: "Ratio RQ", data: [],
+                            borderColor: "#c084fc",
+                            backgroundColor: createGradient(ctxRQ, 'rgba(192, 132, 252, 0.3)', 'rgba(192, 132, 252, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#c084fc'
+                        }
+                    ]
+                },
+                options: commonChartOptions
+            });
+
+            const ctxEth = document.getElementById("chartEth").getContext('2d');
+            chartEth = new Chart(ctxEth, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: "Ethanol (ppm)", data: [],
+                            borderColor: "#fbbf24",
+                            backgroundColor: createGradient(ctxEth, 'rgba(251, 191, 36, 0.3)', 'rgba(251, 191, 36, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#fbbf24'
+                        }
+                    ]
+                },
+                options: commonChartOptions
+            });
+
+            const ctxTempRH = document.getElementById("chartTempRH").getContext('2d');
+            let tempRHOptions = JSON.parse(JSON.stringify(commonChartOptions));
+            tempRHOptions.scales.y1 = {
+                type: 'linear',
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                border: { display: false },
+                ticks: { padding: 10 }
+            };
+
+            chartTempRH = new Chart(ctxTempRH, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: "Suhu (°C)", data: [],
+                            borderColor: "#f43f5e",
+                            yAxisID: 'y',
+                            backgroundColor: createGradient(ctxTempRH, 'rgba(244, 63, 94, 0.3)', 'rgba(244, 63, 94, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#f43f5e'
+                        },
+                        {
+                            label: "RH (%)", data: [],
+                            borderColor: "#818cf8",
+                            yAxisID: 'y1',
+                            backgroundColor: createGradient(ctxTempRH, 'rgba(129, 140, 248, 0.3)', 'rgba(129, 140, 248, 0)'),
+                            fill: true,
+                            pointHoverBorderColor: '#818cf8'
+                        }
+                    ]
+                },
+                options: tempRHOptions
+            });
+        }
+
+        function fetchData() {
+            fetch(API_URL)
+                .then(res => res.json())
+                .then(data => {
+                    updateStatusBar(true);
+                    updateDashboard(data);
+                })
+                .catch(err => {
+                    console.error(err);
+                    updateStatusBar(false);
+                });
+        }
+
+        function updateDashboard(data) {
+            if (!data || data.length < 2) return;
+
+            const rows = data.slice(1).slice(-MAX_POINTS);
+
+            chartO2CO2.data.datasets.forEach(d => d.data = []);
+            chartRQ.data.datasets.forEach(d => d.data = []);
+            chartEth.data.datasets.forEach(d => d.data = []);
+            chartTempRH.data.datasets.forEach(d => d.data = []);
+
+            rows.forEach(r => {
+                const t = new Date(r[0]);
+
+                chartO2CO2.data.datasets[0].data.push({ x: t, y: num(r[6]) });
+                chartO2CO2.data.datasets[1].data.push({ x: t, y: num(r[7]) });
+                chartRQ.data.datasets[0].data.push({ x: t, y: num(r[8]) });
+                chartEth.data.datasets[0].data.push({ x: t, y: num(r[3]) });
+                chartTempRH.data.datasets[0].data.push({ x: t, y: num(r[1]) });
+                chartTempRH.data.datasets[1].data.push({ x: t, y: num(r[2]) });
+            });
+
+            const last = rows[rows.length - 1];
+
+            document.getElementById('o2Val').textContent = num(last[6]).toFixed(2);
+            document.getElementById('co2Val').textContent = num(last[7]).toFixed(2);
+            document.getElementById('rqVal').textContent = num(last[8]).toFixed(2);
+            document.getElementById('ethVal').textContent = num(last[3]).toFixed(1);
+            document.getElementById('tempVal').textContent = num(last[1]).toFixed(1);
+            document.getElementById('rhVal').textContent = num(last[2]).toFixed(1);
+
+            // Mist logic processing
+            const mxVal = last[9];
+            const isMistOn = mxVal === 1 || mxVal === "ON" || mxVal == "1";
+            const mistEl = document.getElementById('mistVal');
+
+            if (isMistOn) {
+                mistEl.textContent = "ON";
+                mistEl.className = "text-2xl md:text-3xl lg:text-4xl font-sans font-black text-c_mist tracking-widest bg-c_mist/10 px-4 py-1.5 rounded-xl border border-c_mist/20 shadow-[0_0_15px_rgba(45,212,191,0.3)] transition-all duration-300";
+            } else {
+                mistEl.textContent = "OFF";
+                mistEl.className = "text-2xl md:text-3xl lg:text-4xl font-sans font-bold text-slate-500 tracking-widest px-4 py-1.5 transition-all duration-300";
+            }
+
+            // Alert Status logic
+            const lastStatusStr = (last[10] || "Normal").toUpperCase();
+            const lastAlertVal = num(last[11]);
+            const alertEl = document.getElementById('alertVal');
+            const alertIconBox = document.getElementById('alertIconBox');
+            const alertCard = document.getElementById('alertCard');
+
+            alertEl.textContent = lastStatusStr;
+
+            if (lastStatusStr === "WARNING") { // Warning
+                alertEl.className = "text-xl md:text-2xl lg:text-2xl font-sans font-black text-warning tracking-widest bg-warning/10 px-4 py-1.5 rounded-xl border border-warning/30 shadow-[0_0_15px_rgba(245,158,11,0.3)] transition-all duration-300";
+                alertIconBox.className = "p-2 rounded-xl bg-warning/20 text-warning hidden xl:block";
+                alertCard.className = "glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-warning/50 bg-warning/5 relative overflow-hidden";
+            } else if (lastStatusStr === "DANGER") { // Danger
+                alertEl.className = "text-xl md:text-2xl lg:text-2xl font-sans font-black text-orange-500 tracking-widest bg-orange-500/10 px-4 py-1.5 rounded-xl border border-orange-500/40 shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all duration-300";
+                alertIconBox.className = "p-2 rounded-xl bg-orange-500/20 text-orange-500 hidden xl:block";
+                alertCard.className = "glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-orange-500/60 bg-orange-500/10 relative overflow-hidden";
+            } else if (lastStatusStr === "CRITICAL") { // Critical
+                alertEl.className = "text-xl md:text-2xl lg:text-2xl font-sans font-black text-danger tracking-widest bg-danger/20 px-4 py-1.5 rounded-xl border border-danger/50 shadow-[0_0_25px_rgba(239,68,68,0.6)] animate-pulse transition-all duration-300";
+                alertIconBox.className = "p-2 rounded-xl bg-danger/20 text-danger animate-bounce hidden xl:block";
+                alertCard.className = "glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-danger bg-danger/10 relative overflow-hidden shadow-[0_0_30px_rgba(239,68,68,0.3)]";
+            } else { // Normal
+                alertEl.className = "text-xl md:text-2xl lg:text-2xl font-sans font-bold text-success tracking-widest px-4 py-1.5 transition-all duration-300";
+                alertIconBox.className = "p-2 rounded-xl bg-success/10 text-success hidden xl:block";
+                alertCard.className = "glass-panel p-5 lg:p-6 rounded-2xl flex flex-col justify-between group border-success/20 bg-gradient-to-br from-panel/40 to-panel/80";
+            }
+
+            // Flash effect to top numeric cards
+            ['o2Val', 'co2Val', 'rqVal', 'ethVal', 'tempVal', 'rhVal'].forEach(flashCard);
+
+            // Update graphs without full animation for smoother loop
+            chartO2CO2.update('none');
+            chartRQ.update('none');
+            chartEth.update('none');
+            chartTempRH.update('none');
+
+            // Render table beautifully
+            const body = document.getElementById("logBody");
+            body.innerHTML = "";
+            rows.slice(-10).reverse().forEach(r => {
+                const timeStr = new Date(r[0]).toLocaleTimeString('id-ID', { hour12: false });
+
+                const r_mist = r[9] === 1 || r[9] === "ON" || r[9] == "1";
+                const mistBadge = r_mist ?
+                    '<span class="px-2.5 py-1 bg-c_mist/20 border border-c_mist/30 text-c_mist shadow-[0_0_8px_rgba(45,212,191,0.25)] rounded-md text-[11px] font-bold tracking-widest transition-all">ON</span>' :
+                    '<span class="px-2.5 py-1 bg-slate-800/80 border border-slate-700 text-slate-400 rounded-md text-[11px] font-semibold tracking-widest transition-all">OFF</span>';
+
+                const rStatus = (r[10] || "Normal").toUpperCase();
+                let statusBadge = '';
+                if (rStatus === "WARNING") statusBadge = '<span class="px-2.5 py-1 bg-warning/20 border border-warning/50 text-warning rounded-md text-[10px] font-bold tracking-widest">WARNING</span>';
+                else if (rStatus === "DANGER") statusBadge = '<span class="px-2.5 py-1 bg-orange-500/20 border border-orange-500/50 text-orange-500 rounded-md text-[10px] font-bold tracking-widest">DANGER</span>';
+                else if (rStatus === "CRITICAL") statusBadge = '<span class="px-2.5 py-1 bg-danger/20 border border-danger/50 text-danger rounded-md text-[10px] font-bold tracking-widest animate-pulse">CRITICAL</span>';
+                else statusBadge = '<span class="px-2.5 py-1 bg-success/10 border border-success/30 text-success rounded-md text-[10px] font-bold tracking-widest">NORMAL</span>';
+
+                body.innerHTML += `
+                    <tr class="transition-colors duration-200 hover:bg-slate-800/30 font-mono">
+                      <td class="px-6 py-3.5 text-slate-400 font-medium">${timeStr}</td>
+                      <td class="px-6 py-3.5 text-c_co2 font-semibold">${num(r[7]).toFixed(2)}</td>
+                      <td class="px-6 py-3.5 text-c_o2 font-semibold">${num(r[6]).toFixed(2)}</td>
+                      <td class="px-6 py-3.5 text-c_rq font-semibold">${num(r[8]).toFixed(2)}</td>
+                      <td class="px-6 py-3.5 text-c_eth font-semibold drop-shadow-sm">${num(r[3]).toFixed(1)}</td>
+                      <td class="px-6 py-3.5 text-c_temp font-semibold">${num(r[1]).toFixed(1)}</td>
+                      <td class="px-6 py-3.5 text-c_rh font-semibold">${num(r[2]).toFixed(1)}</td>
+                      <td class="px-6 py-3.5">${mistBadge}</td>
+                      <td class="px-6 py-3.5">${statusBadge}</td>
+                    </tr>`;
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            fetchData();
+
+            // Re-fetch data every 5 secs
+            setInterval(fetchData, 5000);
+
+            // Update local clock string independently
+            setInterval(() => {
+                if (isConnected) {
+                    document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString('id-ID', { hour12: false });
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+
+</html>
